@@ -1,0 +1,25 @@
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Build & Release archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Temporary & Backup files
+*.bak
+*.tmp
+*.log
+
+# WoW SavedVariables / Local runtime artifacts
+WTF/
+SavedVariables/
+*.lua.bak
