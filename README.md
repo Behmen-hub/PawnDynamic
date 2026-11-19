@@ -19,10 +19,25 @@
 * **UI & Bag/Quest Integration:** Native Lua ElvUI-style 6-tab interface, side-by-side item compare, tooltip scoring, quest reward markers, and bag arrows for Blizzard Bags, Bagnon, and Baganator.
 * **Secret-Value Safe:** Full `Plain()` wrapper (`issecretvalue`) and `pcall`-guarded callbacks for zero combat Lua errors on Build `16001`.
 
-<!-- Add screenshots once ready:
+## Screenshots
+
+### Caps & Dynamics
 ![Caps & Dynamics](imgs/caps.png)
-![Stat Prio Generator](imgs/prio_generator.png)
--->
+
+### Stat Priority Generator
+![Stat Priority Generator](imgs/Generator.png)
+
+### Item Tooltip
+![Item Tooltip](imgs/item.png)
+
+### Profiles & Weights
+![Profiles](imgs/profil.png)
+![Weights](imgs/weight.png)
+
+### Direct Compare, Options & About
+![Compare](imgs/compare.png)
+![Options](imgs/options.png)
+![About](imgs/about.png)
 
 ---
 
