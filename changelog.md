@@ -4,6 +4,24 @@ All notable changes to **PawnDynamic** (World of Warcraft: Classic Forever, Inte
 
 ---
 
+## [1.1.0-beta] - 2026-11-20
+### Added
+* **Optional Percentage Stat Scaling Below Level 60 (`Caps.lua`, `UI.lua`, all 10 `Locales\*.lua`):** Added the per-profile `Scale % stats below level 60` checkbox (`scalePercentByLevel`) with live scaling factor indicator and tooltip in *Caps & Dynamics*, proportionally scaling multiplicative percentage stats (`Crit`, `Hit`, `Haste`, `Expertise`, `Dodge`, `Parry`, `Block`) by `PlayerLevel / 60` while leveling (`1.00` at level 60).
+* **Pairwise Weapon Evaluation & Bag Partner Matching (`Upgrades.lua`, `Scales.lua`, `PrioGenerator.lua`, `Caps.lua`):** Added full pairwise weapon comparisons (`2H` vs `1H + Shield/Off-Hand`, Dual-Wield MH/OH combinations, and best-partner lookup from bags) alongside `MELEE_HIT` / `RANGED_HIT` / `OFFHAND_DPS` synergies.
+* **Explicit Multi-Slot Replacement Notes in Tooltips (`Upgrades.lua`, `Tooltip.lua`, all 10 `Locales\*.lua`):** Upgrade tooltip lines now display which slot or equipped item would be replaced (Rings, Trinkets, Main Hand, Off Hand, `MH + OH`), including clear MH-to-OH swap notes (e.g., `(Main hand, Worn Dagger → Off hand)`).
+* **Automatic Permanent Class Unusable Filters (`Scales.lua`, `PrioGenerator.lua`, `ImportExport.lua`, `UI.lua`):** Applied `CLASS_UNUSABLE_DEFAULTS` across starter profiles, newly created profiles, Stat Prio Generator outputs, and Pawn-v1 imports for all 9 classes while keeping lower wearable armor classes and Level-40 unlockable armor types unlocked.
+
+### Changed
+* **Full 10-Locale `Getting started / About` Localization (`UI.lua`, all 10 `Locales\*.lua`):** Localized the entire *Getting started / About* tab (author/license header, section descriptions, Druid Bear Form notice, and slash-command reference) across all 10 client locales (`273 / 273` keys aligned).
+* **Temporary Equip Restrictions Kept Eligible for Upgrades (`Parser.lua`, `Upgrades.lua`):** Separated permanent class usability (`IsUsable`) from temporary equip requirements (`CanEquipNow` such as `minLevel > PlayerLevel()`, untrained weapon skills, or Level-40 mail/plate locks) so future upgrades still show percentage gains in tooltips.
+* Unified addon metadata version to `1.1.0-beta` in `PawnDynamic.toc` and `Core.lua`.
+
+### Fixed
+* **Cloak Exemption from Cloth Filter (`Parser.lua`, `Scales.lua`, `Upgrades.lua`):** Explicitly exempted `INVTYPE_CLOAK` from the `IsCloth` unusable check (`classID = 4, subclassID = 1`) so cloaks are always evaluated.
+* **Real Dual-Wield Availability Check & MH→OH Swap Guard (`Upgrades.lua`):** Replaced the unconditional class check in `CanDualWield` with `IsSpellKnown(674)` / `IsPlayerSpell(674)` / `_G.CanDualWield()` plus Classic level fallbacks (`ROGUE >= 10`, `WARRIOR`/`HUNTER >= 20`), prevented inferior weapons from swapping the current Main Hand into an empty Off Hand (`sMH > mainOnlyScore + 0.01`), and fixed `replacedName` falling back to `main.name` when the Off Hand slot was empty.
+
+---
+
 ## [1.0.0-beta] - 2026-11-19
 ### Added
 * **Branding & Addon Icon:** Added high-resolution `PD` CurseForge logo (`512x512`) and native in-game `Media\Icon.tga` (`128x128`, 32-bit uncompressed TGA) wired via `## IconTexture: Interface\AddOns\PawnDynamic\Media\Icon`.

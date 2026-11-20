@@ -352,6 +352,7 @@ local function ParseSingleTag(tag)
 
     local weights = {}
     local unusableTypes = {}
+    local explicitUnusable = {}
     local classToken = ns.class
     local specKey = nil
     local colorHex = nil
@@ -396,8 +397,11 @@ local function ParseSingleTag(tag)
                 elseif k == "DoNotShow2HUpgrades" then
                     local lv = v:lower()
                     hide2H = (lv == "1" or lv == "true")
-                elseif UNUSABLE_KEYS[k] and (v == "X" or v == "x" or ParseFiniteNumber(v) == -1000000) then
-                    unusableTypes[k] = true
+                elseif UNUSABLE_KEYS[k] then
+                    explicitUnusable[k] = true
+                    if v == "X" or v == "x" or ParseFiniteNumber(v) == -1000000 then
+                        unusableTypes[k] = true
+                    end
                 elseif k == "SpellPower" then
                     local num = ParseFiniteNumber(v)
                     if num and num ~= 0 then
@@ -428,6 +432,13 @@ local function ParseSingleTag(tag)
                     end
                 end
             end
+        end
+    end
+
+    local classDefaults = (ns.Scales and ns.Scales.GetDefaultUnusableTypes and ns.Scales.GetDefaultUnusableTypes(classToken)) or {}
+    for k, v in pairs(classDefaults) do
+        if v and not explicitUnusable[k] then
+            unusableTypes[k] = true
         end
     end
 

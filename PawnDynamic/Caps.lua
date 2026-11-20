@@ -13,6 +13,7 @@ local L = ns.L
 Caps.DEFAULT_CAPS = {
     enableCaps = true,
     useTalents = true,
+    scalePercentByLevel = true, -- Scale percentage stats down below Lv 60 (1.0 at Lv 60)
     targetMode = "auto",      -- "auto" (Lv < 60 => +0, Lv 60 => +3) | 0 | 2 | 3
     hitMode = "auto",         -- "auto" | "melee" | "spell"
     tankExpertiseMode = false,
@@ -412,6 +413,14 @@ local LEVEL_SCALED_STATS = {
     DEFENSE = true, DODGE = true, PARRY = true, BLOCK = true,
 }
 
+function Caps:GetLevelScalingFactor(scale, level)
+    level = level or (self:GetCharacterStats().level) or 60
+    if level >= 60 or (scale and scale.caps and scale.caps.scalePercentByLevel == false) then
+        return 1.0
+    end
+    return math.min(1.0, math.max(0.1, level / 60))
+end
+
 function Caps:GetEffectiveWeights(scale, opts)
     local st = self:GetCharacterStats()
     local caps = scale.caps or Caps.DEFAULT_CAPS
@@ -441,14 +450,25 @@ function Caps:GetEffectiveWeights(scale, opts)
     end
 
     local isSpellScale = scale.isSpell or ((weights.SPELL_DAMAGE or 0) >= 0.9) or ((weights.HEALING or 0) >= 0.9)
-
-    local levelShare = 1.0
-    if level < 60 then
-        levelShare = level / 60
-        if isSpellScale then
-            levelShare = levelShare * levelShare
+    if not isSpellScale and scale.class ~= "DRUID" and (weights.MELEE_DPS or 0) > 0 then
+        local explicitlyZeroOH = (scale.overrides and scale.overrides.OFFHAND_DPS == 0)
+        if (weights.OFFHAND_DPS or 0) == 0 and not explicitlyZeroOH then
+            weights.OFFHAND_DPS = weights.MELEE_DPS * 0.625
+        end
+        local explicitlyZeroHit = (scale.overrides and scale.overrides.MELEE_HIT == 0)
+        if (weights.MELEE_HIT or 0) == 0 and (weights.MELEE_SPEED or 0) == 0 and not explicitlyZeroHit then
+            local hitMult = (scale.class == "ROGUE" and 0.20) or (scale.isTank and 0.08) or 0.14
+            weights.MELEE_HIT = weights.MELEE_DPS * hitMult
         end
     end
+    if scale.class == "HUNTER" and (weights.RANGED_DPS or 0) > 0 then
+        local explicitlyZeroRHit = (scale.overrides and scale.overrides.RANGED_HIT == 0)
+        if (weights.RANGED_HIT or 0) == 0 and (weights.RANGED_SPEED or 0) == 0 and not explicitlyZeroRHit then
+            weights.RANGED_HIT = weights.RANGED_DPS * 0.25
+        end
+    end
+
+    local levelShare = self:GetLevelScalingFactor(scale, level)
 
     local casterMeleeShare, casterWandShare = 1.0, 1.0
     if isSpellScale then
@@ -666,6 +686,8 @@ function Caps:GetResolvedCapsForLevel(scale)
         targetMode = caps.targetMode or "auto",
         targetOffset = targetOffset,
         enemyLevel = enemyLevel,
+        scalePercentByLevel = (caps.scalePercentByLevel ~= false),
+        levelScaleFactor = self:GetLevelScalingFactor(scale, level),
         hitKind = hitKind,
         hitHard = hitHard,
         dwSoftCap = dwSoftCap,

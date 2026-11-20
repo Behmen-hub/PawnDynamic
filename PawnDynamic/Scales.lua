@@ -73,7 +73,7 @@ Scales.STARTER_DEFINITIONS = {
             colorHex = "5c9ce6",
             weights = {
                 STAMINA = 1, STRENGTH = 0.7, AGILITY = 0.5, ATTACK_POWER = 0.3,
-                HIT = 8, CRIT = 3, EXPERTISE = 8, WEAPON_SKILL = 1.5, MELEE_DPS = 4,
+                HIT = 8, CRIT = 3, EXPERTISE = 8, WEAPON_SKILL = 1.5, MELEE_DPS = 4, MELEE_HIT = 0.35,
                 ARMOR = 0.05, DEFENSE = 1.2, DODGE = 7.5, PARRY = 7.5, BLOCK = 4, BLOCK_VALUE = 0.3, HP5 = 0.3,
                 RANGED_DPS = 0.2,
             },
@@ -93,7 +93,7 @@ Scales.STARTER_DEFINITIONS = {
             colorHex = "70b8ff",
             weights = {
                 STAMINA = 1, STRENGTH = 0.5, AGILITY = 0.4, INTELLECT = 0.2, ATTACK_POWER = 0.2,
-                SPELL_DAMAGE = 0.6, HOLY_DAMAGE = 0.5, HIT = 8, CRIT = 3, EXPERTISE = 7, MELEE_DPS = 3,
+                SPELL_DAMAGE = 0.6, HOLY_DAMAGE = 0.5, HIT = 8, CRIT = 3, EXPERTISE = 7, MELEE_DPS = 3, MELEE_HIT = 0.25,
                 ARMOR = 0.05, DEFENSE = 1.2, DODGE = 7.5, PARRY = 7.5, BLOCK = 5, BLOCK_VALUE = 0.4, MP5 = 0.5, HP5 = 0.3,
             },
         },
@@ -317,6 +317,59 @@ Scales.STARTER_DEFINITIONS = {
 }
 
 ------------------------------------------------------------------------
+-- Permanent Classic Forever Class Restrictions (Unusable Armor/Weapons)
+------------------------------------------------------------------------
+
+Scales.CLASS_UNUSABLE_DEFAULTS = {
+    WARRIOR = {
+        IsWand = true, IsRelic = true,
+    },
+    PALADIN = {
+        IsDagger = true, IsFist = true, IsStaff = true, IsWand = true,
+        IsBow = true, IsCrossbow = true, IsGun = true, IsThrown = true, IsOffHand = true,
+    },
+    HUNTER = {
+        IsPlate = true, IsShield = true,
+        IsMace = true, Is2HMace = true, IsWand = true, IsRelic = true,
+    },
+    ROGUE = {
+        IsMail = true, IsPlate = true, IsShield = true,
+        Is2HAxe = true, Is2HMace = true, Is2HSword = true, IsPolearm = true,
+        IsStaff = true, IsWand = true, IsRelic = true,
+    },
+    PRIEST = {
+        IsLeather = true, IsMail = true, IsPlate = true, IsShield = true,
+        IsAxe = true, Is2HAxe = true, Is2HMace = true, IsSword = true, Is2HSword = true,
+        IsPolearm = true, IsFist = true, IsBow = true, IsCrossbow = true, IsGun = true,
+        IsThrown = true, IsOffHand = true, IsRelic = true,
+    },
+    SHAMAN = {
+        IsPlate = true,
+        IsSword = true, Is2HSword = true, IsPolearm = true,
+        IsBow = true, IsCrossbow = true, IsGun = true, IsThrown = true,
+        IsWand = true, IsOffHand = true,
+    },
+    MAGE = {
+        IsLeather = true, IsMail = true, IsPlate = true, IsShield = true,
+        IsAxe = true, Is2HAxe = true, IsMace = true, Is2HMace = true, Is2HSword = true,
+        IsPolearm = true, IsFist = true, IsBow = true, IsCrossbow = true, IsGun = true,
+        IsThrown = true, IsOffHand = true, IsRelic = true,
+    },
+    WARLOCK = {
+        IsLeather = true, IsMail = true, IsPlate = true, IsShield = true,
+        IsAxe = true, Is2HAxe = true, IsMace = true, Is2HMace = true, Is2HSword = true,
+        IsPolearm = true, IsFist = true, IsBow = true, IsCrossbow = true, IsGun = true,
+        IsThrown = true, IsOffHand = true, IsRelic = true,
+    },
+    DRUID = {
+        IsMail = true, IsPlate = true, IsShield = true,
+        IsAxe = true, Is2HAxe = true, IsSword = true, Is2HSword = true, IsPolearm = true,
+        IsBow = true, IsCrossbow = true, IsGun = true, IsThrown = true,
+        IsWand = true, IsOffHand = true,
+    },
+}
+
+------------------------------------------------------------------------
 -- Runtime Scale Materialization
 ------------------------------------------------------------------------
 
@@ -336,6 +389,35 @@ local function CopyTable(src)
         end
     end
     return dst
+end
+
+function Scales.GetDefaultUnusableTypes(classToken)
+    local src = Scales.CLASS_UNUSABLE_DEFAULTS[classToken or ns.class]
+    return CopyTable(src)
+end
+
+function Scales:IsItemTypeUnusable(info, scale)
+    if not info or not scale or type(scale.unusableTypes) ~= "table" then
+        return false
+    end
+    local loc = info.equipLoc
+    if loc == "INVTYPE_CLOAK" then
+        return false
+    end
+    local ut = scale.unusableTypes
+    if info.itemTypeKey and ut[info.itemTypeKey] then
+        return true
+    end
+    if ut.IsOffHand and loc == "INVTYPE_WEAPONOFFHAND" then
+        return true
+    end
+    if ut.IsFrill and loc == "INVTYPE_HOLDABLE" then
+        return true
+    end
+    if ut.IsRelic and loc == "INVTYPE_RELIC" then
+        return true
+    end
+    return false
 end
 
 local function BuildStarterCatalog()
@@ -362,6 +444,7 @@ local function BuildStarterCatalog()
                 colorHex = def.colorHex or "33ff99",
                 baseWeights = CopyTable(def.weights),
                 baseCaps = ns.Caps and ns.Caps.MakeDefaultCaps(def.role, def.isDualWield) or {},
+                baseUnusableTypes = Scales.GetDefaultUnusableTypes(classToken),
             }
             starterByID[id] = obj
             starterListByClass[classToken][#starterListByClass[classToken] + 1] = obj
@@ -394,6 +477,16 @@ local function MaterializeStarter(starterObj)
             caps[capKey] = val
         end
     end
+    local ut = CopyTable(starterObj.baseUnusableTypes)
+    if ov and type(ov.unusableTypes) == "table" then
+        for typeKey, flag in pairs(ov.unusableTypes) do
+            if flag then
+                ut[typeKey] = true
+            else
+                ut[typeKey] = nil
+            end
+        end
+    end
     local nf = ov and ov.normalizeFactor
     local normFactor = nil
     if type(nf) == "number" and nf > 0 then
@@ -418,7 +511,7 @@ local function MaterializeStarter(starterObj)
         normalizeFactor = normFactor,
         hide1H = ov and ov.hide1H or false,
         hide2H = ov and ov.hide2H or false,
-        unusableTypes = (ov and ov.unusableTypes) or {},
+        unusableTypes = ut,
         weights = weights,
         caps = caps,
         baseWeights = starterObj.baseWeights,
@@ -741,14 +834,15 @@ function Scales:CreateEmpty(name, classToken)
         return nil, "Duplicate name"
     end
     local id = NextCustomID()
+    local targetClass = classToken or ns.class
     ns.db.customScales[id] = {
         name = name,
-        class = classToken or ns.class,
+        class = targetClass,
         role = "DAMAGER",
         colorHex = "00d1ff",
         weights = { STAMINA = 0.01 },
         caps = ns.Caps and ns.Caps.MakeDefaultCaps("DAMAGER", false) or {},
-        unusableTypes = {},
+        unusableTypes = Scales.GetDefaultUnusableTypes(targetClass),
     }
     ns.char.autoMode = false
     ns.char.visibleScales[id] = true
@@ -781,7 +875,7 @@ function Scales:CreateFromTemplate(name, starterID)
         colorHex = tpl.colorHex,
         weights = CopyTable(tpl.baseWeights),
         caps = CopyTable(tpl.baseCaps),
-        unusableTypes = {},
+        unusableTypes = CopyTable(tpl.baseUnusableTypes or Scales.GetDefaultUnusableTypes(tpl.class)),
     }
     ns.char.autoMode = false
     ns.char.visibleScales[id] = true
@@ -900,17 +994,22 @@ function Scales:SetCapOption(scaleID, key, value)
 end
 
 function Scales:SetUnusableType(scaleID, typeKey, isUnusable)
-    local val = isUnusable and true or nil
     if starterByID[scaleID] then
         local ov = EnsureOverrides(scaleID, true)
-        ov.unusableTypes[typeKey] = val
+        local defFlag = (starterByID[scaleID].baseUnusableTypes and starterByID[scaleID].baseUnusableTypes[typeKey]) and true or false
+        local newFlag = isUnusable and true or false
+        if newFlag == defFlag then
+            ov.unusableTypes[typeKey] = nil
+        else
+            ov.unusableTypes[typeKey] = newFlag
+        end
         ns:Changed(false)
         return
     end
     local raw = ns.db.customScales[scaleID]
     if raw then
         raw.unusableTypes = raw.unusableTypes or {}
-        raw.unusableTypes[typeKey] = val
+        raw.unusableTypes[typeKey] = isUnusable and true or nil
         ns:Changed(false)
     end
 end
@@ -960,9 +1059,10 @@ function Scales:CreateFromGenerator(name, payload)
     end
 
     local id = NextCustomID()
+    local targetClass = payload.class or ns.class
     ns.db.customScales[id] = {
         name = name,
-        class = payload.class or ns.class,
+        class = targetClass,
         role = payload.role or "DAMAGER",
         isTank = payload.isTank and true or false,
         isSpell = payload.isSpell and true or false,
@@ -970,7 +1070,7 @@ function Scales:CreateFromGenerator(name, payload)
         colorHex = "00d1ff",
         weights = CopyTable(payload.weights),
         caps = CopyTable(payload.caps or (ns.Caps and ns.Caps.DEFAULT_CAPS) or {}),
-        unusableTypes = {},
+        unusableTypes = CopyTable(payload.unusableTypes or Scales.GetDefaultUnusableTypes(targetClass)),
     }
     ns.char.autoMode = false
     ns.char.visibleScales[id] = true
@@ -991,7 +1091,9 @@ function Scales:ApplyGeneratorToCustom(scaleID, payload)
         return nil, "Custom scale not found"
     end
 
-    raw.class = payload.class or raw.class or ns.class
+    local prevClass = raw.class
+    local targetClass = payload.class or raw.class or ns.class
+    raw.class = targetClass
     raw.role = payload.role or raw.role or "DAMAGER"
     raw.isTank = payload.isTank and true or false
     raw.isSpell = payload.isSpell and true or false
@@ -1000,6 +1102,16 @@ function Scales:ApplyGeneratorToCustom(scaleID, payload)
     raw.caps = raw.caps or {}
     for k, v in pairs(payload.caps or {}) do
         raw.caps[k] = v
+    end
+    local defUnusable = payload.unusableTypes or Scales.GetDefaultUnusableTypes(targetClass)
+    if prevClass ~= targetClass or type(raw.unusableTypes) ~= "table" or not next(raw.unusableTypes) then
+        raw.unusableTypes = CopyTable(defUnusable)
+    else
+        for k, v in pairs(defUnusable) do
+            if v and raw.unusableTypes[k] == nil then
+                raw.unusableTypes[k] = true
+            end
+        end
     end
 
     ns:Changed(false)
@@ -1013,6 +1125,9 @@ end
 function Scales:ScoreItem(info, scale, opts)
     if not info or not scale then
         return 0, nil
+    end
+    if not (opts and opts.ignoreUnusableTypes) and self:IsItemTypeUnusable(info, scale) then
+        return 0, { totalScore = 0, rawScore = 0, contributions = {}, anyCapped = false }
     end
     local replaced = opts and opts.replacedItems
     local res = ns.Caps:EvaluateItemDelta(info, replaced, scale, opts)

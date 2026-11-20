@@ -5,7 +5,7 @@ local ADDON_NAME, ns = ...
 _G.PawnDynamic = ns
 
 ns.name = ADDON_NAME
-ns.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.0.0-beta"
+ns.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")) or "1.1.0-beta"
 
 ------------------------------------------------------------------------
 -- Generation & State Flags

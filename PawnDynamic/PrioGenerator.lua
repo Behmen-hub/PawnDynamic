@@ -136,8 +136,10 @@ PrioGen.STAT_BUDGET_BASE = {
     RANGED_AP     = 0.5,
     FERAL_AP      = 0.5,
     MELEE_DPS     = 5.5,
+    MELEE_HIT     = 1.0,
     OFFHAND_DPS   = 3.5,
     RANGED_DPS    = 3.5,
+    RANGED_HIT    = 0.9,
 
     SPELL_DAMAGE  = 0.85,
     HEALING       = 0.45,
@@ -247,6 +249,9 @@ function PrioGen:GetAvailableStats(classToken, role)
         AddStat("CRIT")
         AddStat("HASTE")
         AddStat("MELEE_DPS")
+        if classToken ~= "DRUID" then
+            AddStat("MELEE_HIT")
+        end
         if classToken == "WARRIOR" then
             AddStat("RANGED_DPS")
         end
@@ -261,6 +266,9 @@ function PrioGen:GetAvailableStats(classToken, role)
         end
     elseif role == "MELEE" then
         AddStat("MELEE_DPS")
+        if classToken ~= "DRUID" then
+            AddStat("MELEE_HIT")
+        end
         if DUAL_WIELD_MELEE[classToken] then
             AddStat("OFFHAND_DPS")
         end
@@ -300,6 +308,7 @@ function PrioGen:GetAvailableStats(classToken, role)
         end
     elseif role == "RANGED" then
         AddStat("RANGED_DPS")
+        AddStat("RANGED_HIT")
         AddStat("HIT")
         AddStat("CRIT")
         AddStat("HASTE")
@@ -558,6 +567,32 @@ function PrioGen:CalculateWeights(classToken, role, prioList)
         end
     end
 
+    -- Weapon speed (average per-swing damage) & Dual-Wield off-hand weapon synergies
+    if (baseWeights.MELEE_DPS or 0) > 0 and classToken ~= "DRUID" then
+        if role == "MELEE" and DUAL_WIELD_MELEE[classToken] and (baseWeights.OFFHAND_DPS or 0) <= 0 and allowedSet.OFFHAND_DPS then
+            local roundedOH = RoundWeight(baseWeights.MELEE_DPS * 0.625)
+            if roundedOH > 0 then
+                finalWeights.OFFHAND_DPS = roundedOH
+                sources.OFFHAND_DPS = "synergy"
+            end
+        end
+        if (baseWeights.MELEE_HIT or 0) <= 0 and allowedSet.MELEE_HIT then
+            local hitRatio = (classToken == "ROGUE" and 0.20) or (role == "TANK" and 0.08) or 0.15
+            local roundedHit = RoundWeight(baseWeights.MELEE_DPS * hitRatio)
+            if roundedHit > 0 then
+                finalWeights.MELEE_HIT = roundedHit
+                sources.MELEE_HIT = "synergy"
+            end
+        end
+    end
+    if (baseWeights.RANGED_DPS or 0) > 0 and role == "RANGED" and (baseWeights.RANGED_HIT or 0) <= 0 and allowedSet.RANGED_HIT then
+        local roundedRHit = RoundWeight(baseWeights.RANGED_DPS * 0.25)
+        if roundedRHit > 0 then
+            finalWeights.RANGED_HIT = roundedRHit
+            sources.RANGED_HIT = "synergy"
+        end
+    end
+
     -- Ensure mandatory class & role baseline weights if user omitted them
     if N > 0 then
         local mandatory = GetMandatoryStats(classToken, role)
@@ -629,6 +664,7 @@ function PrioGen:BuildProfilePayload(classToken, role, prioList, name)
         isDualWield = isDualWield,
         weights = weights,
         caps = self:BuildCapsForRole(role),
+        unusableTypes = (ns.Scales and ns.Scales.GetDefaultUnusableTypes and ns.Scales.GetDefaultUnusableTypes(classToken)) or {},
         sources = sources,
         rankOf = rankOf,
     }

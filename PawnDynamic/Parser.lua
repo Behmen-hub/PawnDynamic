@@ -261,8 +261,9 @@ function Parser:CleanLine(text)
         :gsub("|T.-|t", "")
         :gsub("|A.-|a", "")
 
-    -- Replace UTF-8 NBSP (U+00A0) and narrow NBSP (U+202F) used in frFR/ruRU
+    -- Replace UTF-8 NBSP (U+00A0), narrow NBSP (U+202F), and en/em dashes
     text = text:gsub("\194\160", " "):gsub("\226\128\175", " ")
+        :gsub("\226\128\147", "-"):gsub("\226\128\148", "-")
 
     -- Strip spaces between digits in French/Russian thousands groupings (e.g. "1 234 Armor")
     text = text:gsub("(%d) (%d%d%d)([^%d%%])", "%1%2%3")
@@ -374,13 +375,13 @@ end
 
 local function ParseLine(info, text, rawLine)
     local low, high = MatchAny(text, WORDS.range)
-    if not low and not info.minDamage then
+    if not low then
         low = MatchAny(text, WORDS.flat)
         high = low
     end
     if low then
-        info.minDamage = tonumber(low)
-        info.maxDamage = tonumber(high)
+        info.minDamage = (info.minDamage or 0) + (tonumber(low) or 0)
+        info.maxDamage = (info.maxDamage or 0) + (tonumber(high) or 0)
         return true
     end
 
@@ -558,6 +559,9 @@ local RANGED_LOCS = {
 }
 
 local function ResolveItemTypeKey(equipLoc, classID, subclassID)
+    if equipLoc == "INVTYPE_CLOAK" then
+        return nil
+    end
     if classID == 4 and subclassID then
         return ARMOR_SUBCLASS_MAP[subclassID]
     end
@@ -583,6 +587,7 @@ local function ParseTooltipIntoPayload(itemString, equipLoc)
         unread = {},
         lines = lines,
         unusable = false,
+        hasRedLine = false,
         colored = false,
         hasProcOrUse = false,
     }
@@ -592,7 +597,7 @@ local function ParseTooltipIntoPayload(itemString, equipLoc)
     for i = 2, #lines do
         local line = lines[i]
         if line.red then
-            payload.unusable = true
+            payload.hasRedLine = true
         end
         if line.colored then
             payload.colored = true
@@ -605,7 +610,7 @@ local function ParseTooltipIntoPayload(itemString, equipLoc)
             end
 
             local classes = WORDS.classes and text:match(WORDS.classes)
-            if classes and #classNames > 0 and not ContainsAny(classes, classNames) then
+            if classes and ((#classNames > 0 and not ContainsAny(classes, classNames)) or line.red) then
                 payload.unusable = true
             end
 
@@ -743,6 +748,7 @@ function Parser:Get(link)
         itemTypeKey = ResolveItemTypeKey(equipLoc, classID, subclassID),
         ranged = RANGED_LOCS[equipLoc] or false,
         unusable = basePayload.unusable,
+        hasRedLine = basePayload.hasRedLine,
         colored = basePayload.colored,
         hasProcOrUse = basePayload.hasProcOrUse,
 

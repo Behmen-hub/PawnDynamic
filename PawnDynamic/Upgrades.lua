@@ -52,14 +52,38 @@ local function PlayerLevel()
     return ns.PlainNumber(UnitLevel and UnitLevel("player"), 1)
 end
 
-local function CanDualWield()
-    if type(_G.CanDualWield) == "function" then
-        local ok, res = pcall(_G.CanDualWield)
-        if ok then
-            return ns.Plain(res) and true or false
+local function CanDualWield(scale)
+    local cls = (scale and scale.class) or ns.class
+    if scale and scale.unusableTypes and scale.unusableTypes.IsOffHand then
+        return false
+    end
+    if cls == ns.class then
+        if type(_G.IsSpellKnown) == "function" then
+            local ok, known = pcall(_G.IsSpellKnown, 674)
+            if ok and ns.Plain(known) then
+                return true
+            end
+        end
+        if type(_G.IsPlayerSpell) == "function" then
+            local ok, known = pcall(_G.IsPlayerSpell, 674)
+            if ok and ns.Plain(known) then
+                return true
+            end
+        end
+        if type(_G.CanDualWield) == "function" then
+            local ok, res = pcall(_G.CanDualWield)
+            if ok and res ~= nil then
+                return ns.Plain(res) and true or false
+            end
         end
     end
-    return ns.class == "ROGUE" or ((ns.class == "WARRIOR" or ns.class == "HUNTER") and PlayerLevel() >= 20)
+    local lvl = PlayerLevel()
+    if cls == "ROGUE" then
+        return lvl >= 10
+    elseif cls == "WARRIOR" or cls == "HUNTER" then
+        return lvl >= 20
+    end
+    return false
 end
 
 local function EquippedInfo(slot)
@@ -86,34 +110,67 @@ local function MainHandAllowed(info)
 end
 
 function Upgrades:IsUsable(info, scale)
-    if not info or info.unusable or (info.minLevel or 0) > PlayerLevel() then
+    if not info or info.unusable then
         return false
     end
-    if not info.colored and info.classID == ARMOR_CLASS then
+    local loc = info.equipLoc
+    local cls = (scale and scale.class) or ns.class
+    if loc ~= "INVTYPE_CLOAK" and not info.colored and info.classID == ARMOR_CLASS then
         local sub = info.subclassID
         if sub and ((sub >= 1 and sub <= 4) or sub == 6) then
-            local req = ARMOR_PROFICIENCY[ns.class] and ARMOR_PROFICIENCY[ns.class][sub]
-            if not req or PlayerLevel() < req then
+            local req = ARMOR_PROFICIENCY[cls] and ARMOR_PROFICIENCY[cls][sub]
+            if not req then
                 return false
             end
         end
     end
     if scale then
-        if scale.unusableTypes and info.itemTypeKey and scale.unusableTypes[info.itemTypeKey] then
-            return false
+        if loc ~= "INVTYPE_CLOAK" then
+            if ns.Scales and ns.Scales.IsItemTypeUnusable then
+                if ns.Scales:IsItemTypeUnusable(info, scale) then
+                    return false
+                end
+            elseif scale.unusableTypes then
+                if info.itemTypeKey and scale.unusableTypes[info.itemTypeKey] then
+                    return false
+                end
+                if scale.unusableTypes.IsOffHand and loc == "INVTYPE_WEAPONOFFHAND" then
+                    return false
+                end
+                if scale.unusableTypes.IsFrill and loc == "INVTYPE_HOLDABLE" then
+                    return false
+                end
+                if scale.unusableTypes.IsRelic and loc == "INVTYPE_RELIC" then
+                    return false
+                end
+            end
         end
-        local loc = info.equipLoc
         if scale.hide2H and loc == "INVTYPE_2HWEAPON" then
             return false
         end
         if scale.hide1H and (MAIN_HAND_LOCS[loc] or OFF_HAND_LOCS[loc]) then
             return false
         end
-        if scale.unusableTypes and scale.unusableTypes.IsOffHand and loc == "INVTYPE_WEAPONOFFHAND" then
-            return false
-        end
-        if scale.unusableTypes and scale.unusableTypes.IsFrill and loc == "INVTYPE_HOLDABLE" then
-            return false
+    end
+    return true
+end
+
+function Upgrades:CanEquipNow(info, scale)
+    if not self:IsUsable(info, scale) then
+        return false
+    end
+    if (info.minLevel or 0) > PlayerLevel() or info.hasRedLine then
+        return false
+    end
+    local loc = info.equipLoc
+    local cls = (scale and scale.class) or ns.class
+    if loc ~= "INVTYPE_CLOAK" and not info.colored and info.classID == ARMOR_CLASS then
+        local sub = info.subclassID
+        if sub and ((sub >= 1 and sub <= 4) or sub == 6) then
+            local req = ARMOR_PROFICIENCY[cls] and ARMOR_PROFICIENCY[cls][sub]
+            if not req or PlayerLevel() < req then
+                return false
+            end
         end
     end
     return true
@@ -150,8 +207,9 @@ local function ReadBagPartners(scale, replacedPair)
 
     local partners = { main = {}, off = {} }
     partnerCache[cacheKey] = partners
-    local dual = CanDualWield()
+    local dual = CanDualWield(scale)
     local seen = {}
+    local counts = {}
 
     if C_Container and C_Container.GetContainerNumSlots and C_Container.GetContainerItemInfo then
         for bag = 0, NUM_BAG_SLOTS or 4 do
@@ -160,21 +218,32 @@ local function ReadBagPartners(scale, replacedPair)
                 local item = C_Container.GetContainerItemInfo(bag, slot)
                 local link = item and ns.PlainText(item.hyperlink)
                 local info = link and ns.Parser:Get(link)
-                if info and not seen[info.itemString] and Upgrades:IsUsable(info, scale) then
-                    seen[info.itemString] = true
-                    local loc = info.equipLoc
-                    if MAIN_HAND_LOCS[loc] and MainHandAllowed(info) then
-                        local score = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedPair })
-                        partners.main[#partners.main + 1] = { info = info, score = score }
-                    end
-                    if loc == "INVTYPE_SHIELD" or loc == "INVTYPE_HOLDABLE"
-                        or (dual and (loc == "INVTYPE_WEAPONOFFHAND" or loc == "INVTYPE_WEAPON")) then
-                        local score = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedPair })
-                        partners.off[#partners.off + 1] = { info = info, score = score }
+                if info and Upgrades:IsUsable(info, scale) then
+                    local key = info.itemString
+                    counts[key] = (counts[key] or 0) + 1
+                    if not seen[key] then
+                        seen[key] = true
+                        local loc = info.equipLoc
+                        if MAIN_HAND_LOCS[loc] and MainHandAllowed(info) then
+                            local score = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedPair })
+                            partners.main[#partners.main + 1] = { info = info, score = score, itemString = key }
+                        end
+                        if loc == "INVTYPE_SHIELD" or loc == "INVTYPE_HOLDABLE"
+                            or (dual and (loc == "INVTYPE_WEAPONOFFHAND" or loc == "INVTYPE_WEAPON")) then
+                            local score = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedPair })
+                            partners.off[#partners.off + 1] = { info = info, score = score, itemString = key }
+                        end
                     end
                 end
             end
         end
+    end
+
+    for _, entry in ipairs(partners.main) do
+        entry.count = counts[entry.itemString] or 1
+    end
+    for _, entry in ipairs(partners.off) do
+        entry.count = counts[entry.itemString] or 1
     end
     return partners
 end
@@ -183,7 +252,8 @@ local function BestPartner(hand, excludeItemString, scale, replacedPair)
     local best
     local list = ReadBagPartners(scale, replacedPair)[hand]
     for _, entry in ipairs(list) do
-        if entry.info.itemString ~= excludeItemString and entry.score > 0 and (not best or entry.score > best.score) then
+        if (entry.info.itemString ~= excludeItemString or (entry.count or 1) >= 2)
+            and entry.score > 0 and (not best or entry.score > best.score) then
             best = entry
         end
     end
@@ -241,7 +311,22 @@ local function StrictlyDominates(newInfo, oldInfo, scale)
     return better
 end
 
-local function EvaluateItem(link, scale)
+local function MakeWeaponNote(chosenSlot, replacedName, movedToOffName)
+    local handLabel = (chosenSlot == MAIN_SLOT) and L["Main hand"] or L["Off hand"]
+    if movedToOffName and movedToOffName ~= "" then
+        local moveNote = (L["%s to off hand"] or "%s → Off hand"):format(movedToOffName)
+        if replacedName and replacedName ~= "" then
+            return ("(%s, %s - " .. L["replaces: %s"] .. ")"):format(handLabel, moveNote, replacedName)
+        end
+        return ("(%s, %s)"):format(handLabel, moveNote)
+    end
+    if replacedName and replacedName ~= "" then
+        return ("(%s - " .. L["replaces: %s"] .. ")"):format(handLabel, replacedName)
+    end
+    return ("(%s)"):format(handLabel)
+end
+
+local function EvaluateItem(link, scale, slotHint)
     local info = ns.Parser:Get(link)
     if not info then
         return info
@@ -249,6 +334,7 @@ local function EvaluateItem(link, scale)
 
     local loc = info.equipLoc
     local usable = Upgrades:IsUsable(info, scale)
+    local canEquipNow = Upgrades:CanEquipNow(info, scale)
     local slots = FIXED_SLOTS[loc]
 
     local score = 0
@@ -259,6 +345,7 @@ local function EvaluateItem(link, scale)
     local candidateScore = 0
     local chosenSlot = nil
     local partner = nil
+    local replaceNote = nil
     local empty = false
     local blind = false
     local dominant = false
@@ -296,6 +383,9 @@ local function EvaluateItem(link, scale)
 
         candidateScore = score
         empty = not weakestWorn
+        if #slots > 1 and weakestWorn and weakestWorn.name then
+            replaceNote = ("(" .. L["replaces: %s"] .. ")"):format(weakestWorn.name)
+        end
         dominant = StrictlyDominates(info, weakestWorn, scale)
         blind = weakestWorn and baselineScore <= 0
             and (loc == "INVTYPE_TRINKET" or loc == "INVTYPE_RELIC" or #weakestWorn.unread > 0 or weakestWorn.hasProcOrUse)
@@ -308,97 +398,226 @@ local function EvaluateItem(link, scale)
             return nil
         end
 
-        replacedItems = {}
-        if main then replacedItems[#replacedItems + 1] = main end
-        if off then replacedItems[#replacedItems + 1] = off end
+        local pairReplaced = {}
+        if main then pairReplaced[#pairReplaced + 1] = main end
+        if off then pairReplaced[#pairReplaced + 1] = off end
+        local mainOnlyReplaced = main and { main } or {}
+        local offOnlyReplaced = off and { off } or {}
+        replacedItems = pairReplaced
 
-        local mainScore = main and ns.Scales:ScoreItem(main, scale, { hand = "main", replacedItems = replacedItems }) or 0
-        local offScore = off and ns.Scales:ScoreItem(off, scale, { hand = "off", replacedItems = replacedItems }) or 0
+        local mainOnlyScore = main and ns.Scales:ScoreItem(main, scale, { hand = "main", replacedItems = mainOnlyReplaced }) or 0
+        local offOnlyScore = off and ns.Scales:ScoreItem(off, scale, { hand = "off", replacedItems = offOnlyReplaced }) or 0
+        local pairMainScore = main and ns.Scales:ScoreItem(main, scale, { hand = "main", replacedItems = pairReplaced }) or 0
+        local pairOffScore = off and ns.Scales:ScoreItem(off, scale, { hand = "off", replacedItems = pairReplaced }) or 0
+
         local twoHanded = main and main.equipLoc == "INVTYPE_2HWEAPON"
-        local dual = CanDualWield()
+        local canOffHandWeapon = CanDualWield(scale)
 
-        baselineScore = mainScore + offScore
-        empty = not main and not off
-
-        if loc == "INVTYPE_2HWEAPON" then
+        if slotHint == OFF_SLOT and loc ~= "INVTYPE_2HWEAPON" then
             local evalRes
-            score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedItems })
+            score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced })
             rawScore = evalRes and evalRes.rawScore or score
             anyCapped = evalRes and evalRes.anyCapped or false
             if info.isEnchanted then
-                currentScore = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedItems, useCurrent = true })
+                currentScore = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced, useCurrent = true })
             end
+            chosenSlot = OFF_SLOT
+            baselineScore = offOnlyScore
+            candidateScore = score
+            empty = not off
+            dominant = StrictlyDominates(info, off, scale)
+            replaceNote = MakeWeaponNote(OFF_SLOT, off and off.name or nil)
+
+        elseif loc == "INVTYPE_2HWEAPON" then
+            local evalRes
+            score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced })
+            rawScore = evalRes and evalRes.rawScore or score
+            anyCapped = evalRes and evalRes.anyCapped or false
+            if info.isEnchanted then
+                currentScore = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced, useCurrent = true })
+            end
+            baselineScore = pairMainScore + pairOffScore
             candidateScore = score
             chosenSlot = MAIN_SLOT
+            empty = not main and not off
+            dominant = (not off) and StrictlyDominates(info, main, scale) or false
             usable = usable and MainHandAllowed(info)
-
-        elseif MAIN_HAND_LOCS[loc] then
-            local canOffHand = (loc == "INVTYPE_WEAPON") and main and not twoHanded and dual and not (scale.unusableTypes and scale.unusableTypes.IsOffHand)
-            if MainHandAllowed(info) then
-                local evalRes
-                score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedItems })
-                rawScore = evalRes and evalRes.rawScore or score
-                anyCapped = evalRes and evalRes.anyCapped or false
-                if info.isEnchanted then
-                    currentScore = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = replacedItems, useCurrent = true })
-                end
-                candidateScore = score + offScore
-                chosenSlot = MAIN_SLOT
-
-                if twoHanded then
-                    partner = BestPartner("off", info.itemString, scale, replacedItems)
-                    if partner then
-                        candidateScore = score + partner.score
-                    end
-                elseif main and dual and main.equipLoc == "INVTYPE_WEAPON" and not (scale.unusableTypes and scale.unusableTypes.IsOffHand) then
-                    local swappedOff = ns.Scales:ScoreItem(main, scale, { hand = "off", replacedItems = replacedItems })
-                    if score + swappedOff > candidateScore then
-                        candidateScore = score + swappedOff
-                    end
-                end
-            elseif canOffHand then
-                local evalRes
-                score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedItems })
-                rawScore = evalRes and evalRes.rawScore or score
-                anyCapped = evalRes and evalRes.anyCapped or false
-                candidateScore = 0
-                chosenSlot = OFF_SLOT
-            else
-                local evalRes
-                score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedItems })
-                rawScore = evalRes and evalRes.rawScore or score
-                anyCapped = evalRes and evalRes.anyCapped or false
-                candidateScore = 0
-                chosenSlot = MAIN_SLOT
-                usable = false
+            if main and off then
+                replaceNote = ("(" .. L["replaces: %s"] .. ")"):format(main.name .. " + " .. off.name)
             end
 
-            if canOffHand then
-                local offVal = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedItems })
-                local paired = mainScore + offVal
-                if paired > candidateScore then
-                    candidateScore = paired
-                    chosenSlot = OFF_SLOT
-                    score = offVal
+        elseif MAIN_HAND_LOCS[loc] then
+            local canMH = MainHandAllowed(info)
+            local canOH = (loc == "INVTYPE_WEAPON") and canOffHandWeapon
+
+            if twoHanded then
+                local bestOpt
+                local function ConsiderTwoHandOpt(opt)
+                    if not bestOpt or opt.candidate > bestOpt.candidate then
+                        bestOpt = opt
+                    end
+                end
+
+                if canMH then
+                    local sMH, evMH = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced })
+                    local pOff = BestPartner("off", info.itemString, scale, pairReplaced)
+                    local curMH = info.isEnchanted and ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced, useCurrent = true }) or nil
+                    ConsiderTwoHandOpt({
+                        score = sMH,
+                        evalRes = evMH,
+                        current = curMH,
+                        candidate = sMH + (pOff and pOff.score or 0),
+                        slot = MAIN_SLOT,
+                        partner = pOff,
+                    })
+                end
+
+                if canOH then
+                    local sOH, evOH = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = pairReplaced })
+                    local pMain = BestPartner("main", info.itemString, scale, pairReplaced)
+                    local curOH = info.isEnchanted and ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = pairReplaced, useCurrent = true }) or nil
+                    ConsiderTwoHandOpt({
+                        score = sOH,
+                        evalRes = evOH,
+                        current = curOH,
+                        candidate = (pMain and pMain.score or 0) + sOH,
+                        slot = OFF_SLOT,
+                        partner = pMain,
+                    })
+                end
+
+                if bestOpt then
+                    score = bestOpt.score
+                    rawScore = bestOpt.evalRes and bestOpt.evalRes.rawScore or score
+                    anyCapped = bestOpt.evalRes and bestOpt.evalRes.anyCapped or false
+                    currentScore = bestOpt.current
+                    baselineScore = pairMainScore
+                    candidateScore = bestOpt.candidate
+                    chosenSlot = bestOpt.slot
+                    partner = bestOpt.partner
+                    empty = false
+                    replaceNote = MakeWeaponNote(chosenSlot, main and main.name or nil)
+                else
+                    usable = false
+                    chosenSlot = MAIN_SLOT
+                end
+            else
+                local bestOpt
+                local function ConsiderDualOpt(opt)
+                    if not bestOpt or opt.netGain > bestOpt.netGain + 0.001
+                        or (math.abs(opt.netGain - bestOpt.netGain) <= 0.001 and opt.empty and not bestOpt.empty) then
+                        bestOpt = opt
+                    end
+                end
+
+                if canMH then
+                    local sMH, evMH = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = mainOnlyReplaced })
+                    local curMH = info.isEnchanted and ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = mainOnlyReplaced, useCurrent = true }) or nil
+                    ConsiderDualOpt({
+                        score = sMH,
+                        evalRes = evMH,
+                        current = curMH,
+                        baseline = mainOnlyScore,
+                        candidate = sMH,
+                        netGain = sMH - mainOnlyScore,
+                        slot = MAIN_SLOT,
+                        empty = not main,
+                        replacedName = main and main.name or nil,
+                        dominant = StrictlyDominates(info, main, scale),
+                    })
+
+                    if main and canOffHandWeapon and main.equipLoc == "INVTYPE_WEAPON" and sMH > mainOnlyScore + 0.01 then
+                        local swappedMainInOff = ns.Scales:ScoreItem(main, scale, { hand = "off", replacedItems = pairReplaced })
+                        if swappedMainInOff > offOnlyScore + 0.01 then
+                            local sMHPair, evMHPair = ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced })
+                            local curMHPair = info.isEnchanted and ns.Scales:ScoreItem(info, scale, { hand = "main", replacedItems = pairReplaced, useCurrent = true }) or nil
+                            local pairBase = pairMainScore + pairOffScore
+                            local pairCand = sMHPair + swappedMainInOff
+                            ConsiderDualOpt({
+                                score = sMHPair,
+                                evalRes = evMHPair,
+                                current = curMHPair,
+                                baseline = pairBase,
+                                candidate = pairCand,
+                                netGain = pairCand - pairBase,
+                                slot = MAIN_SLOT,
+                                empty = not off,
+                                replacedName = off and off.name or nil,
+                                movedToOffName = main.name,
+                                dominant = false,
+                            })
+                        end
+                    end
+                end
+
+                if canOH then
+                    local sOH, evOH = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced })
+                    local curOH = info.isEnchanted and ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced, useCurrent = true }) or nil
+                    ConsiderDualOpt({
+                        score = sOH,
+                        evalRes = evOH,
+                        current = curOH,
+                        baseline = offOnlyScore,
+                        candidate = sOH,
+                        netGain = sOH - offOnlyScore,
+                        slot = OFF_SLOT,
+                        empty = not off,
+                        replacedName = off and off.name or nil,
+                        dominant = StrictlyDominates(info, off, scale),
+                    })
+                end
+
+                if bestOpt then
+                    score = bestOpt.score
+                    rawScore = bestOpt.evalRes and bestOpt.evalRes.rawScore or score
+                    anyCapped = bestOpt.evalRes and bestOpt.evalRes.anyCapped or false
+                    currentScore = bestOpt.current
+                    baselineScore = bestOpt.baseline
+                    candidateScore = bestOpt.candidate
+                    chosenSlot = bestOpt.slot
+                    empty = bestOpt.empty
+                    dominant = bestOpt.dominant
+                    replaceNote = MakeWeaponNote(chosenSlot, bestOpt.replacedName, bestOpt.movedToOffName)
+                else
+                    local evFB
+                    score, evFB = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced })
+                    rawScore = evFB and evFB.rawScore or score
+                    anyCapped = evFB and evFB.anyCapped or false
+                    chosenSlot = MAIN_SLOT
+                    usable = false
                 end
             end
         else
-            if loc == "INVTYPE_WEAPONOFFHAND" and not dual then
+            if loc == "INVTYPE_WEAPONOFFHAND" and not canOffHandWeapon then
                 usable = false
-            end
-            local evalRes
-            score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedItems })
-            rawScore = evalRes and evalRes.rawScore or score
-            anyCapped = evalRes and evalRes.anyCapped or false
-            if info.isEnchanted then
-                currentScore = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = replacedItems, useCurrent = true })
             end
             chosenSlot = OFF_SLOT
             if twoHanded then
-                partner = BestPartner("main", info.itemString, scale, replacedItems)
+                local evalRes
+                score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = pairReplaced })
+                rawScore = evalRes and evalRes.rawScore or score
+                anyCapped = evalRes and evalRes.anyCapped or false
+                if info.isEnchanted then
+                    currentScore = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = pairReplaced, useCurrent = true })
+                end
+                partner = BestPartner("main", info.itemString, scale, pairReplaced)
+                baselineScore = pairMainScore
                 candidateScore = (partner and partner.score or 0) + score
+                empty = false
+                replaceNote = MakeWeaponNote(OFF_SLOT, main and main.name or nil)
             else
-                candidateScore = mainScore + score
+                local evalRes
+                score, evalRes = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced })
+                rawScore = evalRes and evalRes.rawScore or score
+                anyCapped = evalRes and evalRes.anyCapped or false
+                if info.isEnchanted then
+                    currentScore = ns.Scales:ScoreItem(info, scale, { hand = "off", replacedItems = offOnlyReplaced, useCurrent = true })
+                end
+                baselineScore = offOnlyScore
+                candidateScore = score
+                empty = not off
+                dominant = StrictlyDominates(info, off, scale)
+                replaceNote = MakeWeaponNote(OFF_SLOT, off and off.name or nil)
             end
         end
     else
@@ -414,9 +633,11 @@ local function EvaluateItem(link, scale)
         candidateScore = candidateScore,
         slot = chosenSlot,
         usable = usable,
+        canEquipNow = canEquipNow,
         upgrade = false,
         empty = empty,
         blind = blind,
+        replaceNote = replaceNote,
     }
 
     if usable and not blind and (candidateScore > baselineScore + 0.01 or (dominant and candidateScore > baselineScore)) then
@@ -442,7 +663,7 @@ end
 
 local verdictCaches, cacheGen, cacheBagGen = {}, 0, 0
 
-function Upgrades:Check(link, scale)
+function Upgrades:Check(link, scale, slotHint)
     local key = ns.Parser.FullItemString(link)
     if not key then
         return false
@@ -459,21 +680,22 @@ function Upgrades:Check(link, scale)
         scaleCache = {}
         verdictCaches[scale.id] = scaleCache
     end
-    local cached = scaleCache[key]
+    local cacheKey = slotHint and (key .. "|s" .. tostring(slotHint)) or key
+    local cached = scaleCache[cacheKey]
     if cached == nil then
-        cached = EvaluateItem(link, scale)
+        cached = EvaluateItem(link, scale, slotHint)
         if cached ~= nil then
-            scaleCache[key] = cached
+            scaleCache[cacheKey] = cached
         end
     end
     return cached
 end
 
-function Upgrades:CheckAllTracked(link)
+function Upgrades:CheckAllTracked(link, slotHint)
     local tracked = ns.Scales:GetTracked()
     local results = {}
     for i, scale in ipairs(tracked) do
-        local v = self:Check(link, scale)
+        local v = self:Check(link, scale, slotHint)
         if v == nil then
             return nil
         end
@@ -496,8 +718,13 @@ function Upgrades.FormatGain(verdict, skipPartner)
     else
         text = L["replaces zero-score item"]
     end
-    if verdict.partner and not skipPartner then
-        text = L["%s with %s"]:format(text, verdict.partner)
+    if not skipPartner then
+        if verdict.partner then
+            text = L["%s with %s"]:format(text, verdict.partner)
+        end
+        if verdict.replaceNote and verdict.replaceNote ~= "" then
+            text = text .. " " .. verdict.replaceNote
+        end
     end
     return text
 end

@@ -6,7 +6,7 @@
 ## Notes-esES: Pesos dinámicos, motor de límites en tiempo real y gestor de perfiles Pawn v1 para WoW Classic Forever.
 ## Notes-esMX: Pesos dinámicos, motor de límites en tiempo real y gestor de perfiles Pawn v1 para WoW Classic Forever.
 ## Author: Behmen
-## Version: 1.0.0-beta
+## Version: 1.1.0-beta
 ## SavedVariables: PawnDynamicDB
 ## IconTexture: Interface\AddOns\PawnDynamic\Media\Icon
 ## Category: Equipment

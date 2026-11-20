@@ -1469,7 +1469,7 @@ local function BuildCapsTab(parent)
         capChecks[#capChecks + 1] = chk
     end
 
-    local raidResistChk = CreateCheckButton(cfgPanel, 292, L["Include Raid Resistance Buff (+60)"], function()
+    local raidResistChk = CreateCheckButton(cfgPanel, 310, L["Include Raid Resistance Buff (+60)"], function()
         local s = ns.Scales:GetSelected()
         if s then
             ns.Scales:SetCapOption(s.id, "includeRaidResistBuff", not (s.caps and s.caps.includeRaidResistBuff))
@@ -1477,7 +1477,7 @@ local function BuildCapsTab(parent)
             UI:Refresh()
         end
     end)
-    raidResistChk:SetPoint("TOPLEFT", 302, -32)
+    raidResistChk:SetPoint("TOPLEFT", 12, -54)
     raidResistChk:SetScript("OnEnter", function(self)
         self.box:SetBorderColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
         if GameTooltip then
@@ -1494,6 +1494,32 @@ local function BuildCapsTab(parent)
         end
     end)
     raidResistChk:Hide()
+
+    local scaleLevelChk = CreateCheckButton(cfgPanel, 356, L["Scale % stats by level (< 60)"], function()
+        local s = ns.Scales:GetSelected()
+        if s then
+            local cur = (s.caps == nil) or (s.caps.scalePercentByLevel ~= false)
+            ns.Scales:SetCapOption(s.id, "scalePercentByLevel", not cur)
+            ns:Changed(false)
+            UI:Refresh()
+        end
+    end)
+    scaleLevelChk:SetPoint("TOPLEFT", 302, -32)
+    scaleLevelChk:SetScript("OnEnter", function(self)
+        self.box:SetBorderColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(L["Scale % stats by level (< 60)"], 1, 1, 1)
+            GameTooltip:AddLine(L["Scale % stats by level tooltip"], 0.85, 0.90, 0.96, true)
+            GameTooltip:Show()
+        end
+    end)
+    scaleLevelChk:SetScript("OnLeave", function(self)
+        self.box:SetBorderColor(BORDER_IDLE[1], BORDER_IDLE[2], BORDER_IDLE[3], 1)
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
 
     local targetHdr = CreateLabel(cfgPanel, 11, ACCENT[1], ACCENT[2], ACCENT[3])
     targetHdr:SetPoint("TOPLEFT", 12, -56)
@@ -1628,7 +1654,7 @@ local function BuildCapsTab(parent)
             if not SHIELD_CLASSES[playerCls] or not SHIELD_CLASSES[cls] then
                 return false
             end
-            if s and s.unusableTypes and s.unusableTypes.INVTYPE_SHIELD then
+            if s and s.unusableTypes and (s.unusableTypes.IsShield or s.unusableTypes.INVTYPE_SHIELD) then
                 return false
             end
             local ohLink = GetInventoryItemLink and GetInventoryItemLink("player", 17)
@@ -1810,19 +1836,41 @@ local function BuildCapsTab(parent)
         for _, chk in ipairs(capChecks) do
             chk:SetCheckedState(s.caps and s.caps[chk._capKey])
         end
+
+        local scaleLvlOn = (s.caps == nil) or (s.caps.scalePercentByLevel ~= false)
+        scaleLevelChk:SetCheckedState(scaleLvlOn)
+        local lvlPct = math.floor((tonumber(rc.levelScaleFactor) or 1.0) * 100 + 0.5)
+        scaleLevelChk.text:SetText(("%s (%d%%)"):format(L["Scale % stats by level (< 60)"], lvlPct))
+        FitText(scaleLevelChk.text, 332, 11)
+
+        local extraY = 0
         if rc.anyResistWeighted then
             raidResistChk:SetCheckedState(s.caps and s.caps.includeRaidResistBuff)
             raidResistChk:Show()
+            extraY = -20
         else
             raidResistChk:Hide()
         end
-        for _, btn in ipairs(targetButtons) do
+
+        targetHdr:ClearAllPoints()
+        targetHdr:SetPoint("TOPLEFT", 12, -56 + extraY)
+        for idx, btn in ipairs(targetButtons) do
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", 12 + (idx - 1) * 148, -73 + extraY)
             btn:SetSelected(curMode == btn._targetMode, EMERALD)
         end
+
+        hitModeHdr:ClearAllPoints()
+        hitModeHdr:SetPoint("TOPLEFT", 12, -106 + extraY)
         local curHitMode = (s.caps and s.caps.hitMode) or "auto"
-        for _, btn in ipairs(hitModeButtons) do
+        for idx, btn in ipairs(hitModeButtons) do
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", 12 + idx * 148, -102 + extraY)
             btn:SetSelected(curHitMode == btn._hitMode, EMERALD)
         end
+
+        spiritFrame:ClearAllPoints()
+        spiritFrame:SetPoint("TOPLEFT", 12, -132 + extraY)
 
         -- Context-aware Spirit target visibility
         local cls = s.class or ns.class
@@ -1843,7 +1891,7 @@ local function BuildCapsTab(parent)
             mechNote:SetPoint("TOPLEFT", spiritFrame, "BOTTOMLEFT", 0, -6)
         else
             spiritFrame:Hide()
-            mechNote:SetPoint("TOPLEFT", 12, -134)
+            mechNote:SetPoint("TOPLEFT", 12, -134 + extraY)
         end
     end
 

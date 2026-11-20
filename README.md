@@ -1,21 +1,22 @@
 # PawnDynamic
 
 **Author:** Behmen  
-**Version:** `1.0.0-beta`  
+**Version:** `1.1.0-beta` (Pre-Release / Beta)  
 **Target Client:** World of Warcraft: Classic Forever (Interface `16001`)  
 **License:** MIT License (100% clean-room Lua, no XML)
 
-**PawnDynamic** is a modern, dynamic gear evaluation addon for **WoW Classic Forever**. It combines classic Pawn-style profile management and Pawn-v1 string import/export with an automatic, delta-based cap engine, live talent/aura tracking, and a Stat Priority Generator.
+**PawnDynamic** is a modern, dynamic gear evaluation addon for **WoW Classic Forever**. It combines classic Pawn-style profile management and Pawn-v1 string import/export with an automatic, delta-based cap engine, live talent/aura tracking, pairwise weapon comparison, and a Stat Priority Generator.
 
-> **Beta Status (`v1.0.0-beta`):** `enUS` and `deDE` are verified in-game. Eight additional locales (`frFR`, `esES`, `itIT`, `ptBR`, `ruRU`, `koKR`, `zhCN`, `zhTW`) are included and open for community refinement via `/pd dump`.
+> **Beta & Localization Status (`v1.1.0-beta`):** This build is an active pre-release/beta. `enUS` and `deDE` are verified in-game. Eight additional locales (`frFR`, `esES`, `itIT`, `ptBR`, `ruRU`, `koKR`, `zhCN`, `zhTW`) are included and open for community refinement via `/pd dump`.
 
 ---
 
 ## Features
-* **Automatic Dynamic Cap Engine:** Level- and target-scaled (`+0`, `+2`, `+3`) delta evaluation for Hit (incl. Dual-Wield & Hybrid Hit Mode), Spell Hit, Defense (`Level × 5 + 125/135/140`), Expertise, Armor (`75%` DR), Avoidance (`Uncrushable`), Haste (`50%` GCD), and Magic Resistances (`(Level + Offset) × 5` + optional `+60` Raid Buff offset).
+* **Automatic Dynamic Cap Engine:** Level- and target-scaled (`+0`, `+2`, `+3`) delta evaluation for Hit (incl. Dual-Wield & Hybrid Hit Mode), Spell Hit, Defense (`Level × 5 + 125/135/140`), Expertise, Armor (`75%` DR), Avoidance (`Uncrushable`), Haste (`50%` GCD), Magic Resistances (`(Level + Offset) × 5` + optional `+60` Raid Buff offset), and optional `< 60` percentage stat scaling (`Scale % stats below level 60`).
+* **Pairwise Weapon & Multi-Slot Comparison:** Evaluates `2H` vs. `1H + Shield/Off-Hand` (including bag partner matching), Dual-Wield MH/OH pairing with real Dual-Wield availability checks, temporarily higher-level/untrained items, and explicit multi-slot replacement notes in tooltips (Rings, Trinkets, Main Hand, Off Hand, and MH→OH swaps).
 * **Stat Priority Generator:** Turns plain priority lists (including 17+ stats) into item-budget-normalized weights with automatic primary-stat synergies (e.g., Armor → Agility, AP → Strength/Agility) and strict `0`-weighting for irrelevant stats.
 * **Talent & Buff Tracking:** Language-independent `C_Traits` / `C_ClassTalents` parsing and `UNIT_AURA` / `UPDATE_SHAPESHIFT_FORM` live updates with strict double-count protection.
-* **Pawn-v1 Compatible:** Hardened import/export for simulator strings (e.g., MythicSim) and unlimited custom profiles.
+* **Automatic Class Filters & Pawn-v1 Compatible:** Pre-configures permanent class armor/weapon restrictions automatically across starter profiles, new profiles, generator profiles, and hardened Pawn-v1 imports (with cloaks exempted from cloth filtering).
 * **UI & Bag/Quest Integration:** Native Lua ElvUI-style 6-tab interface, side-by-side item compare, tooltip scoring, quest reward markers, and bag arrows for Blizzard Bags, Bagnon, and Baganator.
 * **Secret-Value Safe:** Full `Plain()` wrapper (`issecretvalue`) and `pcall`-guarded callbacks for zero combat Lua errors on Build `16001`.
 
@@ -42,7 +43,7 @@
 ---
 
 ## Installation
-1. Download the latest release ZIP from **[CurseForge](#)** or **[GitHub Releases](#)** *(do not download the raw source repository)*.
+1. Download the latest beta ZIP from **[CurseForge](https://www.curseforge.com/wow/addons/pawndynamic)** or **[GitHub Releases](https://github.com/Behmen-hub/PawnDynamic/releases)** *(do not download the raw source repository)*.
 2. Extract the `PawnDynamic` folder into:
    `...\World of Warcraft\_forever_\Interface\AddOns\PawnDynamic`
 3. Launch the game and type `/pd` to open the interface.

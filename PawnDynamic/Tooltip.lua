@@ -37,20 +37,21 @@ end
 local function ShowsWornItem(tooltip, link)
     local name = tooltip.GetName and tooltip:GetName()
     if name == "ShoppingTooltip1" or name == "ShoppingTooltip2" then
-        return true
+        return true, nil
     end
     if tooltip.GetPrimaryTooltipInfo then
         local ok, source = pcall(tooltip.GetPrimaryTooltipInfo, tooltip)
         if ok and type(source) == "table" then
             if source.getterName == "GetInventoryItem" then
                 local unit = type(source.getterArgs) == "table" and ns.Plain(source.getterArgs[1])
-                return unit == "player"
+                local slotID = type(source.getterArgs) == "table" and ns.PlainNumber(source.getterArgs[2])
+                return unit == "player", slotID
             elseif source.getterName then
-                return false
+                return false, nil
             end
         end
     end
-    return ns.Upgrades:IsWorn(link)
+    return ns.Upgrades:IsWorn(link), nil
 end
 
 local function SetTooltipBorderGreen(tooltip, isUpgrade)
@@ -95,6 +96,9 @@ local function FormatScoreValue(verdict, worn, colorHex)
         if verdict.partner then
             gainMsg = L["%s with %s"]:format(gainMsg, verdict.partner)
         end
+        if verdict.replaceNote and verdict.replaceNote ~= "" then
+            gainMsg = gainMsg .. " " .. verdict.replaceNote
+        end
         if mode == "UPGRADES_ONLY" then
             return ("%s%s|r%s"):format(colorHex, gainMsg, capSuffix)
         end
@@ -112,7 +116,7 @@ local function FormatScoreValue(verdict, worn, colorHex)
     return nil
 end
 
-local function AddScoreLines(tooltip, link, worn)
+local function AddScoreLines(tooltip, link, worn, wornSlot)
     if addedTooltips[tooltip] then
         return false
     end
@@ -123,7 +127,7 @@ local function AddScoreLines(tooltip, link, worn)
 
     local verdicts = {}
     for i, scale in ipairs(tracked) do
-        local v = ns.Upgrades:Check(link, scale)
+        local v = ns.Upgrades:Check(link, scale, wornSlot)
         if v == nil then
             return nil
         elseif v == false then
@@ -184,7 +188,8 @@ local function OnTooltipItem(tooltip, data)
     if not link then
         return
     end
-    AddScoreLines(tooltip, link, ShowsWornItem(tooltip, link))
+    local worn, wornSlot = ShowsWornItem(tooltip, link)
+    AddScoreLines(tooltip, link, worn, wornSlot)
 end
 
 ------------------------------------------------------------------------
