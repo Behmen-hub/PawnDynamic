@@ -16,6 +16,7 @@
 * **Pairwise Weapon & Multi-Slot Comparison:** Evaluates `2H` vs. `1H + Shield/Off-Hand` (including bag partner matching), Dual-Wield MH/OH pairing with real Dual-Wield availability checks, temporarily higher-level/untrained items, and explicit multi-slot replacement notes in tooltips (Rings, Trinkets, Main Hand, Off Hand, and MH→OH swaps).
 * **Stat Priority Generator:** Turns plain priority lists (including 17+ stats) into item-budget-normalized weights with automatic primary-stat synergies (e.g., Armor → Agility, AP → Strength/Agility) and strict `0`-weighting for irrelevant stats.
 * **Talent & Buff Tracking:** Language-independent `C_Traits` / `C_ClassTalents` parsing and `UNIT_AURA` / `UPDATE_SHAPESHIFT_FORM` live updates with strict double-count protection.
+* **Multi-Language Tooltip Parsing:** Reads and evaluates item tooltips directly across all 10 supported client languages (`enUS`, `deDE`, `frFR`, `esES`, `itIT`, `ptBR`, `ruRU`, `koKR`, `zhCN`, `zhTW`).
 * **Automatic Class Filters & Pawn-v1 Compatible:** Pre-configures permanent class armor/weapon restrictions automatically across starter profiles, new profiles, generator profiles, and hardened Pawn-v1 imports (with cloaks exempted from cloth filtering).
 * **UI & Bag/Quest Integration:** Native Lua ElvUI-style 6-tab interface, side-by-side item compare, tooltip scoring, quest reward markers, and bag arrows for Blizzard Bags, Bagnon, and Baganator.
 * **Secret-Value Safe:** Full `Plain()` wrapper (`issecretvalue`) and `pcall`-guarded callbacks for zero combat Lua errors on Build `16001`.
