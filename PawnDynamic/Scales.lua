@@ -548,6 +548,8 @@ local function MaterializeCustom(customID, raw)
         specKey = raw.specKey,
         name = raw.name or customID,
         role = raw.role or "DAMAGER",
+        genRole = raw.genRole,
+        prioList = type(raw.prioList) == "table" and CopyTable(raw.prioList) or nil,
         isTank = raw.isTank or false,
         isSpell = isSpell,
         isDualWield = raw.isDualWield or false,
@@ -841,6 +843,7 @@ function Scales:CreateEmpty(name, classToken)
         role = "DAMAGER",
         colorHex = "00d1ff",
         weights = { STAMINA = 0.01 },
+        prioList = {},
         caps = ns.Caps and ns.Caps.MakeDefaultCaps("DAMAGER", false) or {},
         unusableTypes = Scales.GetDefaultUnusableTypes(targetClass),
     }
@@ -902,6 +905,8 @@ function Scales:Copy(sourceID, newName)
         class = src.class,
         specKey = src.specKey,
         role = src.role,
+        genRole = src.genRole,
+        prioList = type(src.prioList) == "table" and CopyTable(src.prioList) or nil,
         isTank = src.isTank,
         isSpell = src.isSpell,
         isDualWield = src.isDualWield,
@@ -974,6 +979,7 @@ function Scales:SetWeight(scaleID, statKey, value)
         else
             raw.weights[statKey] = value
         end
+        raw.prioList = nil
         ns:Changed(false)
     end
 end
@@ -1064,6 +1070,8 @@ function Scales:CreateFromGenerator(name, payload)
         name = name,
         class = targetClass,
         role = payload.role or "DAMAGER",
+        genRole = payload.genRole,
+        prioList = type(payload.prioList) == "table" and CopyTable(payload.prioList) or nil,
         isTank = payload.isTank and true or false,
         isSpell = payload.isSpell and true or false,
         isDualWield = payload.isDualWield and true or false,
@@ -1095,6 +1103,8 @@ function Scales:ApplyGeneratorToCustom(scaleID, payload)
     local targetClass = payload.class or raw.class or ns.class
     raw.class = targetClass
     raw.role = payload.role or raw.role or "DAMAGER"
+    raw.genRole = payload.genRole
+    raw.prioList = type(payload.prioList) == "table" and CopyTable(payload.prioList) or nil
     raw.isTank = payload.isTank and true or false
     raw.isSpell = payload.isSpell and true or false
     raw.isDualWield = payload.isDualWield and true or false

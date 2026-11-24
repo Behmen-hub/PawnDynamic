@@ -4,6 +4,19 @@ All notable changes to **PawnDynamic** (World of Warcraft: Classic Forever, Inte
 
 ---
 
+## [1.2.0-beta] - 2026-11-24
+### Added
+* **Drag-and-Drop Priority Reordering (`UI.lua`, all 10 `Locales\*.lua`):** Replaced the `^`/`v` arrow buttons in Column 2 (*Your priority*) of the Stat Priority Generator with native drag-and-drop reordering featuring grip handles, a floating ghost row, an insertion indicator bar, automatic edge-scrolling for long 17+ stat lists, and instant live preview updates in Column 3 (while keeping the `x` remove button).
+* **Context-Aware Stat Priority Generator Loading & Persistence (`PrioGenerator.lua`, `Scales.lua`, `UI.lua`):** Opening the Stat Priority Generator now initializes based on the active profile context instead of always resetting to defaults: new empty profiles start empty, generator-created/applied and copied profiles preserve their exact saved `prioList` and `genRole`, and templates or existing/imported profiles without a saved list derive their priority descending from weights `> 0` (budget-normalized). *Load default prio* remains available for manual resets.
+* **Expertise Support for `RANGED` / Hunter (`PrioGenerator.lua`):** Unlocked `EXPERTISE` (item-budget factor `11.0`) for the `RANGED` role in the Stat Priority Generator so ranged Hunter profiles (e.g., Beast Mastery) can weight Expertise and track the Expertise cap bar in *Caps & Dynamics*.
+
+### Changed
+* **Ranged Hit Mode Auto-Resolution (`PrioGenerator.lua`):** `BuildCapsForRole` now sets `hitMode = "auto"` for `RANGED` profiles so `Caps:ResolveHitKind` resolves `"ranged"` cleanly without triggering the melee Dual-Wield white-hit soft cap on dual stat-sticks.
+* Added localized strings `Drag to reorder` and `Click + on the left to add stats.` across all 10 client locales (`275 / 275` keys aligned).
+* Unified addon metadata version to `1.2.0-beta` in `PawnDynamic.toc` and `Core.lua`.
+
+---
+
 ## [1.1.0-beta] - 2026-11-20
 ### Added
 * **Optional Percentage Stat Scaling Below Level 60 (`Caps.lua`, `UI.lua`, all 10 `Locales\*.lua`):** Added the per-profile `Scale % stats below level 60` checkbox (`scalePercentByLevel`) with live scaling factor indicator and tooltip in *Caps & Dynamics*, proportionally scaling multiplicative percentage stats (`Crit`, `Hit`, `Haste`, `Expertise`, `Dodge`, `Parry`, `Block`) by `PlayerLevel / 60` while leveling (`1.00` at level 60).

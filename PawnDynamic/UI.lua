@@ -263,6 +263,7 @@ local function CreateScrollArea(parent, width, height)
 
     container.scrollFrame = sf
     container.content = child
+    container.track = track
     container.UpdateBounds = UpdateBounds
     return container
 end
@@ -599,18 +600,13 @@ end
 
 local prioModal
 
-function UI:ShowPrioGeneratorDialog()
+function UI:ShowPrioGeneratorDialog(opts)
     if not ns.PrioGenerator then
         return
     end
     local PG = ns.PrioGenerator
-    local selectedScale = ns.Scales and ns.Scales:GetSelected()
-    local curClass = (selectedScale and selectedScale.class) or ns.class or "WARRIOR"
-    if not PG.CLASS_ROLES[curClass] then
-        curClass = ns.class or "WARRIOR"
-    end
-    local curRole = PG:GetDefaultRoleForClass(curClass, selectedScale)
-    local curPrioList = PG:GetDefaultPrioList(curClass, curRole)
+    local selectedScale = (opts and opts.scale) or (ns.Scales and ns.Scales:GetSelected())
+    local curClass, curRole, curPrioList = PG:ResolveInitialContext(selectedScale, opts and opts.mode)
 
     if not prioModal then
         local f = CreateFrame("Frame", nil, UI.frame)
@@ -669,7 +665,7 @@ function UI:ShowPrioGeneratorDialog()
         availScroll:SetPoint("TOPLEFT", 16, -124)
         StylePanel(availScroll, 0.055, 0.06, 0.08, 1)
 
-        -- Middle Column: Priority List
+        -- Middle Column: Priority List (Drag-and-Drop)
         local prioHdr = CreateLabel(box, 12, EMERALD[1], EMERALD[2], EMERALD[3])
         prioHdr:SetPoint("TOPLEFT", 284, -104)
         prioHdr:SetText(L["Your priority (1 = highest)"])
@@ -677,6 +673,54 @@ function UI:ShowPrioGeneratorDialog()
         local prioScroll = CreateScrollArea(box, 294, 384)
         prioScroll:SetPoint("TOPLEFT", 284, -124)
         StylePanel(prioScroll, 0.055, 0.06, 0.08, 1)
+
+        local prioEmptyLbl = CreateLabel(prioScroll, 11, 0.54, 0.58, 0.66, "CENTER")
+        prioEmptyLbl:SetPoint("CENTER", prioScroll, "CENTER", -4, 0)
+        prioEmptyLbl:SetWidth(248)
+        prioEmptyLbl:SetWordWrap(true)
+        prioEmptyLbl:SetText(L["Click + on the left to add stats."])
+        prioEmptyLbl:Hide()
+
+        -- Insertion indicator bar inside prioScroll.content
+        local dropIndicator = CreateFrame("Frame", nil, prioScroll.content)
+        dropIndicator:SetSize(274, 6)
+        dropIndicator:SetFrameLevel(prioScroll.content:GetFrameLevel() + 15)
+        dropIndicator:EnableMouse(false)
+        local dropLine = dropIndicator:CreateTexture(nil, "OVERLAY")
+        dropLine:SetPoint("LEFT", 2, 0)
+        dropLine:SetPoint("RIGHT", -2, 0)
+        dropLine:SetHeight(2)
+        dropLine:SetColorTexture(EMERALD[1], EMERALD[2], EMERALD[3], 1)
+        local dropCapL = dropIndicator:CreateTexture(nil, "OVERLAY")
+        dropCapL:SetPoint("LEFT", 0, 0)
+        dropCapL:SetSize(4, 6)
+        dropCapL:SetColorTexture(EMERALD[1], EMERALD[2], EMERALD[3], 1)
+        local dropCapR = dropIndicator:CreateTexture(nil, "OVERLAY")
+        dropCapR:SetPoint("RIGHT", 0, 0)
+        dropCapR:SetSize(4, 6)
+        dropCapR:SetColorTexture(EMERALD[1], EMERALD[2], EMERALD[3], 1)
+        dropIndicator:Hide()
+
+        -- Floating ghost row while dragging
+        local dragGhost = CreateFrame("Frame", nil, f)
+        dragGhost:SetSize(274, 24)
+        dragGhost:SetFrameLevel(box:GetFrameLevel() + 25)
+        dragGhost:EnableMouse(false)
+        StylePanel(dragGhost, 0.11, 0.18, 0.25, 0.96)
+        dragGhost:SetBorderColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
+        for g = 1, 3 do
+            local bar = dragGhost:CreateTexture(nil, "OVERLAY")
+            bar:SetSize(10, 1)
+            bar:SetPoint("LEFT", 7, 4 - (g - 1) * 4)
+            bar:SetColorTexture(ACCENT[1], ACCENT[2], ACCENT[3], 0.95)
+        end
+        dragGhost.rankLbl = CreateLabel(dragGhost, 11, EMERALD[1], EMERALD[2], EMERALD[3], "RIGHT")
+        dragGhost.rankLbl:SetPoint("LEFT", 20, 0)
+        dragGhost.rankLbl:SetWidth(22)
+        dragGhost.lbl = CreateLabel(dragGhost, 11, 1.0, 1.0, 1.0)
+        dragGhost.lbl:SetPoint("LEFT", 46, 0)
+        dragGhost.lbl:SetWidth(218)
+        dragGhost:Hide()
 
         -- Right Column: Calculated Weights Preview
         local prevHdr = CreateLabel(box, 12, ACCENT[1], ACCENT[2], ACCENT[3])
@@ -704,12 +748,24 @@ function UI:ShowPrioGeneratorDialog()
         end)
         cancelBtn:SetPoint("BOTTOMRIGHT", -16, 12)
 
+        f:SetScript("OnHide", function(self)
+            if self._cancelDrag then
+                self._cancelDrag()
+            end
+            if GameTooltip and GameTooltip:IsOwned(self) then
+                GameTooltip:Hide()
+            end
+        end)
+
         f.box = box
         f.nameBox = nameBox
         f.roleBtns = roleBtns
         f.resetBtn = resetBtn
         f.availScroll = availScroll
         f.prioScroll = prioScroll
+        f.prioEmptyLbl = prioEmptyLbl
+        f.dropIndicator = dropIndicator
+        f.dragGhost = dragGhost
         f.prevScroll = prevScroll
         f.errLbl = errLbl
         f.createBtn = createBtn
@@ -728,9 +784,164 @@ function UI:ShowPrioGeneratorDialog()
         local rLbl = L[PG.ROLE_LABELS[role] or "Custom scale"]
         return rLbl .. " Prio"
     end
-    f.nameBox:SetText(DefaultProfileName(curClass, curRole))
+    local lastDefaultName = DefaultProfileName(curClass, curRole)
+    f.nameBox:SetText(lastDefaultName)
 
-    local function RefreshDialog()
+    local RefreshDialog
+
+    local function SetGripColor(row, r, g, b, a)
+        if row and row.gripBars then
+            for i = 1, #row.gripBars do
+                row.gripBars[i]:SetColorTexture(r, g, b, a or 1)
+            end
+        end
+    end
+
+    local function FinishDrag(commit)
+        local drag = f._drag
+        f._drag = nil
+        f:SetScript("OnUpdate", nil)
+        f.dragGhost:Hide()
+        f.dropIndicator:Hide()
+        for i = 1, #f.prioPool do
+            local r = f.prioPool[i]
+            if r then
+                r:SetAlpha(1)
+                r:SetBorderColor(BORDER_IDLE[1], BORDER_IDLE[2], BORDER_IDLE[3], 1)
+                SetGripColor(r, 0.48, 0.54, 0.62, 0.9)
+            end
+        end
+        if commit and drag and drag.index and drag.insertPos then
+            local srcIdx = drag.index
+            local ins = drag.insertPos
+            local count = #curPrioList
+            if srcIdx >= 1 and srcIdx <= count and ins ~= srcIdx and ins ~= srcIdx + 1 then
+                local moved = table.remove(curPrioList, srcIdx)
+                local dest = ins > srcIdx and (ins - 1) or ins
+                if dest < 1 then
+                    dest = 1
+                elseif dest > #curPrioList + 1 then
+                    dest = #curPrioList + 1
+                end
+                table.insert(curPrioList, dest, moved)
+                f.errLbl:SetText("")
+                if RefreshDialog then
+                    RefreshDialog()
+                end
+            end
+        end
+    end
+
+    f._cancelDrag = function()
+        FinishDrag(false)
+    end
+
+    local function UpdateDrag(elapsed)
+        local drag = f._drag
+        if not drag or not f:IsShown() then
+            FinishDrag(false)
+            return
+        end
+        if type(IsMouseButtonDown) == "function" then
+            local ok, down = pcall(IsMouseButtonDown, "LeftButton")
+            if ok and not ns.Plain(down) then
+                FinishDrag(true)
+                return
+            end
+        end
+
+        local cx, cy = GetCursorPosition()
+        cx = ns.PlainNumber(cx, 0)
+        cy = ns.PlainNumber(cy, 0)
+
+        local modalScale = ns.PlainNumber(f:GetEffectiveScale(), 1)
+        if modalScale <= 0 then
+            modalScale = 1
+        end
+        local fLeft = ns.PlainNumber(f:GetLeft(), 0)
+        local fBottom = ns.PlainNumber(f:GetBottom(), 0)
+        f.dragGhost:ClearAllPoints()
+        f.dragGhost:SetPoint("CENTER", f, "BOTTOMLEFT", (cx / modalScale) - fLeft, (cy / modalScale) - fBottom)
+
+        local sf = f.prioScroll.scrollFrame
+        local sfScale = ns.PlainNumber(sf:GetEffectiveScale(), 1)
+        if sfScale <= 0 then
+            sfScale = 1
+        end
+        local cursorY = cy / sfScale
+        local sfTop = ns.PlainNumber(sf:GetTop(), 0)
+        local sfBottom = ns.PlainNumber(sf:GetBottom(), 0)
+
+        local _, maxScroll = f.prioScroll.track:GetMinMaxValues()
+        maxScroll = ns.PlainNumber(maxScroll, 0)
+        if maxScroll > 0 and elapsed and elapsed > 0 then
+            local curScroll = ns.PlainNumber(sf:GetVerticalScroll(), 0)
+            local edgeZone = 26
+            local speed = 220
+            local nextScroll = curScroll
+            if cursorY > sfTop - edgeZone then
+                local factor = math.min(2.0, math.max(0.35, (cursorY - (sfTop - edgeZone)) / edgeZone))
+                nextScroll = math.max(0, curScroll - elapsed * speed * factor)
+            elseif cursorY < sfBottom + edgeZone then
+                local factor = math.min(2.0, math.max(0.35, ((sfBottom + edgeZone) - cursorY) / edgeZone))
+                nextScroll = math.min(maxScroll, curScroll + elapsed * speed * factor)
+            end
+            if math.abs(nextScroll - curScroll) > 0.01 then
+                sf:SetVerticalScroll(nextScroll)
+                f.prioScroll.track:SetValue(nextScroll)
+            end
+        end
+
+        local curScroll = ns.PlainNumber(sf:GetVerticalScroll(), 0)
+        local offsetY = (sfTop - cursorY) + curScroll
+        local count = #curPrioList
+        local insertPos = math.floor((offsetY - 4 + 13) / 26) + 1
+        if insertPos < 1 then
+            insertPos = 1
+        elseif insertPos > count + 1 then
+            insertPos = count + 1
+        end
+        drag.insertPos = insertPos
+
+        local lineY = -(insertPos - 1) * 26
+        f.dropIndicator:ClearAllPoints()
+        f.dropIndicator:SetPoint("TOPLEFT", f.prioScroll.content, "TOPLEFT", 4, lineY)
+        f.dropIndicator:Show()
+    end
+
+    local function StartDrag(idx)
+        local sk = curPrioList[idx]
+        if not sk or #curPrioList <= 1 then
+            return
+        end
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+        f._drag = {
+            index = idx,
+            insertPos = idx,
+            statKey = sk,
+        }
+        local srcRow = f.prioPool[idx]
+        if srcRow then
+            srcRow:SetAlpha(0.35)
+            srcRow:SetBorderColor(ACCENT[1], ACCENT[2], ACCENT[3], 0.85)
+        end
+        f.dragGhost.rankLbl:SetText(idx .. ".")
+        f.dragGhost.lbl:SetText((ns.Parser and ns.Parser.statLabels[sk]) or sk)
+        FitText(f.dragGhost.lbl, 214, 11)
+        f.dragGhost:Show()
+        f:SetScript("OnUpdate", function(_, elapsed)
+            ns.Call(UpdateDrag, elapsed)
+        end)
+        UpdateDrag(0)
+    end
+
+    RefreshDialog = function()
+        if f._drag then
+            FinishDrag(false)
+        end
+
         -- 1. Role buttons
         local validRoles = PG:GetValidRolesForClass(curClass)
         for i, rb in ipairs(f.roleBtns) do
@@ -741,9 +952,20 @@ function UI:ShowPrioGeneratorDialog()
                 FitText(rb.text, 102, 11)
                 rb:SetSelected(curRole == r, EMERALD)
                 rb:SetScript("OnClick", function()
+                    if curRole == r then
+                        return
+                    end
+                    local prevDefault = lastDefaultName
                     curRole = r
-                    curPrioList = PG:GetDefaultPrioList(curClass, curRole)
-                    f.nameBox:SetText(DefaultProfileName(curClass, curRole))
+                    if #curPrioList > 0 then
+                        curPrioList = PG:FilterPrioList(curClass, curRole, curPrioList)
+                    end
+                    local newDefault = DefaultProfileName(curClass, curRole)
+                    local curText = ns.Trim(f.nameBox:GetText() or "")
+                    if curText == "" or curText == prevDefault then
+                        f.nameBox:SetText(newDefault)
+                    end
+                    lastDefaultName = newDefault
                     f.errLbl:SetText("")
                     RefreshDialog()
                 end)
@@ -799,48 +1021,73 @@ function UI:ShowPrioGeneratorDialog()
         f.availScroll.content:SetHeight(math.max(376, -ay + 6))
         f.availScroll:UpdateBounds()
 
-        -- 3. Middle Column: Ordered Priority List (1..N)
+        -- 3. Middle Column: Ordered Priority List (1..N) with Drag-and-Drop
+        f.prioEmptyLbl:SetShown(#curPrioList == 0)
         local py = -4
         for idx, sk in ipairs(curPrioList) do
             local row = f.prioPool[idx]
             if not row then
-                row = CreateFrame("Frame", nil, f.prioScroll.content)
+                row = CreateFrame("Button", nil, f.prioScroll.content)
                 row:SetSize(274, 24)
+                row:EnableMouse(true)
+                row:RegisterForDrag("LeftButton")
                 StylePanel(row, 0.085, 0.095, 0.12, 1)
+                row.gripBars = {}
+                for g = 1, 3 do
+                    local bar = row:CreateTexture(nil, "OVERLAY")
+                    bar:SetSize(10, 1)
+                    bar:SetPoint("LEFT", 7, 4 - (g - 1) * 4)
+                    bar:SetColorTexture(0.48, 0.54, 0.62, 0.9)
+                    row.gripBars[g] = bar
+                end
                 row.rankLbl = CreateLabel(row, 11, EMERALD[1], EMERALD[2], EMERALD[3], "RIGHT")
-                row.rankLbl:SetPoint("LEFT", 4, 0)
-                row.rankLbl:SetWidth(24)
+                row.rankLbl:SetPoint("LEFT", 20, 0)
+                row.rankLbl:SetWidth(22)
                 row.lbl = CreateLabel(row, 11, 0.94, 0.95, 0.98)
-                row.lbl:SetPoint("LEFT", 32, 0)
-                row.lbl:SetWidth(166)
-                row.upBtn = CreateFlatButton(row, 20, 18, "^", nil)
-                row.upBtn:SetPoint("RIGHT", -48, 0)
-                row.dnBtn = CreateFlatButton(row, 20, 18, "v", nil)
-                row.dnBtn:SetPoint("RIGHT", -25, 0)
+                row.lbl:SetPoint("LEFT", 46, 0)
+                row.lbl:SetWidth(198)
                 row.rmBtn = CreateFlatButton(row, 20, 18, "x", nil)
-                row.rmBtn:SetPoint("RIGHT", -2, 0)
+                row.rmBtn:SetPoint("RIGHT", -3, 0)
                 f.prioPool[idx] = row
             end
             row:SetPoint("TOPLEFT", 4, py)
+            row:SetAlpha(1)
+            row:SetBorderColor(BORDER_IDLE[1], BORDER_IDLE[2], BORDER_IDLE[3], 1)
+            SetGripColor(row, 0.48, 0.54, 0.62, 0.9)
             row:Show()
             row.rankLbl:SetText(idx .. ".")
             row.lbl:SetText((ns.Parser and ns.Parser.statLabels[sk]) or sk)
-            FitText(row.lbl, 164, 11)
-            row.upBtn:SetDisabledState(idx == 1)
-            row.upBtn:SetScript("OnClick", function()
-                if idx > 1 then
-                    curPrioList[idx], curPrioList[idx - 1] = curPrioList[idx - 1], curPrioList[idx]
-                    RefreshDialog()
+            FitText(row.lbl, 196, 11)
+            row:SetScript("OnEnter", function(self)
+                if not f._drag then
+                    self:SetBorderColor(ACCENT[1], ACCENT[2], ACCENT[3], 1)
+                    SetGripColor(self, ACCENT[1], ACCENT[2], ACCENT[3], 1)
+                    if GameTooltip and #curPrioList > 1 then
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(L["Drag to reorder"], 0.85, 0.92, 1.0)
+                        GameTooltip:Show()
+                    end
                 end
             end)
-            row.dnBtn:SetDisabledState(idx == #curPrioList)
-            row.dnBtn:SetScript("OnClick", function()
-                if idx < #curPrioList then
-                    curPrioList[idx], curPrioList[idx + 1] = curPrioList[idx + 1], curPrioList[idx]
-                    RefreshDialog()
+            row:SetScript("OnLeave", function(self)
+                if not f._drag then
+                    self:SetBorderColor(BORDER_IDLE[1], BORDER_IDLE[2], BORDER_IDLE[3], 1)
+                    SetGripColor(self, 0.48, 0.54, 0.62, 0.9)
                 end
+                if GameTooltip and GameTooltip:IsOwned(self) then
+                    GameTooltip:Hide()
+                end
+            end)
+            row:SetScript("OnDragStart", function()
+                StartDrag(idx)
+            end)
+            row:SetScript("OnDragStop", function()
+                FinishDrag(true)
             end)
             row.rmBtn:SetScript("OnClick", function()
+                if f._drag then
+                    FinishDrag(false)
+                end
                 table.remove(curPrioList, idx)
                 RefreshDialog()
             end)
@@ -849,7 +1096,7 @@ function UI:ShowPrioGeneratorDialog()
         for i = #curPrioList + 1, #f.prioPool do
             f.prioPool[i]:Hide()
         end
-        f.prioScroll.content:SetHeight(math.max(376, -py + 6))
+        f.prioScroll.content:SetHeight(math.max(376, -py + 10))
         f.prioScroll:UpdateBounds()
 
         -- 4. Right Column: Live Weights Preview
@@ -924,12 +1171,18 @@ function UI:ShowPrioGeneratorDialog()
     end
 
     f.resetBtn:SetScript("OnClick", function()
+        if f._drag then
+            FinishDrag(false)
+        end
         curPrioList = PG:GetDefaultPrioList(curClass, curRole)
         f.errLbl:SetText("")
         RefreshDialog()
     end)
 
     f.createBtn:SetScript("OnClick", function()
+        if f._drag then
+            FinishDrag(false)
+        end
         local scale, err = PG:CreateProfile(f.nameBox:GetText(), curClass, curRole, curPrioList)
         if not scale then
             f.errLbl:SetText(err or "Failed to create profile")
@@ -940,6 +1193,9 @@ function UI:ShowPrioGeneratorDialog()
     end)
 
     f.applyBtn:SetScript("OnClick", function()
+        if f._drag then
+            FinishDrag(false)
+        end
         local sel = ns.Scales and ns.Scales:GetSelected()
         if not sel or sel.isStarter then
             return
@@ -953,6 +1209,10 @@ function UI:ShowPrioGeneratorDialog()
         UI:Refresh()
     end)
 
+    for _, sc in ipairs({ f.availScroll, f.prioScroll, f.prevScroll }) do
+        sc.scrollFrame:SetVerticalScroll(0)
+        sc.track:SetValue(0)
+    end
     RefreshDialog()
     f:Show()
 end

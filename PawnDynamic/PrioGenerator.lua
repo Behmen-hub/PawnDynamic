@@ -80,6 +80,9 @@ end
 function PrioGen:GetDefaultRoleForClass(classToken, selectedScale)
     classToken = classToken or ns.class or "WARRIOR"
     if selectedScale and selectedScale.class == classToken then
+        if selectedScale.genRole and self:IsRoleValidForClass(classToken, selectedScale.genRole) then
+            return selectedScale.genRole
+        end
         if selectedScale.isTank or selectedScale.role == "TANK" then
             if self:IsRoleValidForClass(classToken, "TANK") then
                 return "TANK"
@@ -310,6 +313,7 @@ function PrioGen:GetAvailableStats(classToken, role)
         AddStat("RANGED_DPS")
         AddStat("RANGED_HIT")
         AddStat("HIT")
+        AddStat("EXPERTISE")
         AddStat("CRIT")
         AddStat("HASTE")
         AddStat("AGILITY")
@@ -412,6 +416,121 @@ function PrioGen:GetDefaultPrioList(classToken, role)
     end
 
     return { "STAMINA" }
+end
+
+------------------------------------------------------------------------
+-- Contextual Priority Derivation & Loading
+------------------------------------------------------------------------
+
+function PrioGen:FilterPrioList(classToken, role, prioList)
+    classToken = classToken or ns.class or "WARRIOR"
+    if not self:IsRoleValidForClass(classToken, role) then
+        role = self:GetDefaultRoleForClass(classToken)
+    end
+    local _, allowedSet = self:GetAvailableStats(classToken, role)
+    local out, seen = {}, {}
+    if type(prioList) == "table" then
+        for i = 1, #prioList do
+            local sk = PrioGen.NormalizeStatKey(prioList[i])
+            if sk and allowedSet[sk] and not seen[sk] then
+                seen[sk] = true
+                out[#out + 1] = sk
+            end
+        end
+    end
+    return out
+end
+
+function PrioGen:DerivePrioListFromWeights(classToken, role, weights, scale)
+    classToken = classToken or ns.class or "WARRIOR"
+    if not self:IsRoleValidForClass(classToken, role) then
+        role = self:GetDefaultRoleForClass(classToken, scale)
+    end
+    if type(weights) ~= "table" then
+        return {}
+    end
+
+    local nonZeroCount = 0
+    local onlyEmptyStamina = true
+    for k, v in pairs(weights) do
+        if type(v) == "number" and v > 0 then
+            nonZeroCount = nonZeroCount + 1
+            if k ~= "STAMINA" or math.abs(v - 0.01) > 0.0001 then
+                onlyEmptyStamina = false
+            end
+        end
+    end
+    if nonZeroCount == 0 or (onlyEmptyStamina and nonZeroCount == 1 and scale and not scale.isStarter) then
+        return {}
+    end
+
+    local _, allowedSet = self:GetAvailableStats(classToken, role)
+    local isTank = (role == "TANK") or (scale and (scale.isTank == true or scale.role == "TANK"))
+
+    local defaultList = self:GetDefaultPrioList(classToken, role)
+    local defaultRank = {}
+    for i = 1, #defaultList do
+        defaultRank[defaultList[i]] = i
+    end
+
+    local entries = {}
+    for rawKey, val in pairs(weights) do
+        local sk = PrioGen.NormalizeStatKey(rawKey)
+        if sk and allowedSet[sk] and type(val) == "number" and val > 0 then
+            local isTiebreakerArmor = (sk == "ARMOR") and (not isTank) and (val <= 0.0101)
+                and not (scale and scale.overrides and scale.overrides.ARMOR ~= nil)
+            if not isTiebreakerArmor then
+                local base = PrioGen.STAT_BUDGET_BASE[sk] or 1.0
+                entries[#entries + 1] = {
+                    key = sk,
+                    raw = val,
+                    norm = val / base,
+                    defRank = defaultRank[sk] or 999,
+                }
+            end
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        if math.abs(a.norm - b.norm) > 0.0001 then
+            return a.norm > b.norm
+        end
+        if math.abs(a.raw - b.raw) > 0.0001 then
+            return a.raw > b.raw
+        end
+        if a.defRank ~= b.defRank then
+            return a.defRank < b.defRank
+        end
+        return a.key < b.key
+    end)
+
+    local out, seen = {}, {}
+    for i = 1, #entries do
+        local sk = entries[i].key
+        if not seen[sk] then
+            seen[sk] = true
+            out[#out + 1] = sk
+        end
+    end
+    return out
+end
+
+function PrioGen:ResolveInitialContext(selectedScale, mode)
+    local curClass = (selectedScale and selectedScale.class) or ns.class or "WARRIOR"
+    if not self.CLASS_ROLES[curClass] then
+        curClass = ns.class or "WARRIOR"
+    end
+    local curRole = self:GetDefaultRoleForClass(curClass, selectedScale)
+
+    if mode == "empty" or not selectedScale then
+        return curClass, curRole, {}
+    end
+
+    if type(selectedScale.prioList) == "table" then
+        return curClass, curRole, self:FilterPrioList(curClass, curRole, selectedScale.prioList)
+    end
+
+    return curClass, curRole, self:DerivePrioListFromWeights(curClass, curRole, selectedScale.weights, selectedScale)
 end
 
 ------------------------------------------------------------------------
@@ -617,7 +736,7 @@ function PrioGen:CalculateWeights(classToken, role, prioList)
         end
     end
 
-    return finalWeights, sources, rankOf
+    return finalWeights, sources, rankOf, cleanPrio
 end
 
 function PrioGen:BuildCapsForRole(role)
@@ -635,7 +754,7 @@ function PrioGen:BuildCapsForRole(role)
     caps.tankExpertiseMode = (role == "TANK")
     if role == "CASTER" then
         caps.hitMode = "spell"
-    elseif role == "MELEE" or role == "RANGED" or role == "TANK" then
+    elseif role == "MELEE" or role == "TANK" then
         caps.hitMode = "melee"
     else
         caps.hitMode = "auto"
@@ -648,7 +767,7 @@ function PrioGen:BuildProfilePayload(classToken, role, prioList, name)
     if not self:IsRoleValidForClass(classToken, role) then
         role = self:GetDefaultRoleForClass(classToken)
     end
-    local weights, sources, rankOf = self:CalculateWeights(classToken, role, prioList)
+    local weights, sources, rankOf, cleanPrio = self:CalculateWeights(classToken, role, prioList)
     local scaleRole = (role == "TANK" and "TANK") or (role == "HEALER" and "HEALER") or "DAMAGER"
     local isTank = (role == "TANK")
     local isSpell = (role == "CASTER" or role == "HEALER")
@@ -659,6 +778,7 @@ function PrioGen:BuildProfilePayload(classToken, role, prioList, name)
         class = classToken,
         role = scaleRole,
         genRole = role,
+        prioList = cleanPrio,
         isTank = isTank,
         isSpell = isSpell,
         isDualWield = isDualWield,
